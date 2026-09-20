@@ -1,0 +1,2265 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Eulennest Stream Dock</title>
+<style>
+  :root {
+    --bg: #121212;
+    --panel: #1c1c1c;
+    --accent: #9a9a9a;
+    --accent2: #d9d9d9;
+    --text: #e8e8e8;
+    --sub: #8a8a8a;
+    --danger: #ff5c5c;
+    --ok: #6ffcaa;
+    --border: #333333;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 13px;
+  }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* ---- Settings ---- */
+  #settingsBar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; background: #0d1b3d;
+    border-bottom: 1px solid var(--border);
+  }
+  #settingsBar .owl { font-size: 16px; filter: grayscale(1); }
+  #settingsBar .name { font-weight: 700; color: var(--accent2); flex-shrink: 0; }
+  #settingsBar button {
+    margin-left: 6px; background: none; border: 1px solid var(--accent);
+    color: var(--accent2); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 12px;
+  }
+  #whoami { margin-left: auto; color: var(--sub); font-size: 11px; white-space: nowrap; }
+
+  /* ---- Zuschauer-Modus: angemeldeter Account ist kein echter Mod im Kanal -
+     Twitch prueft das serverseitig unabhaengig von den bestaetigten Scopes,
+     darum blenden wir alles aus, was ohnehin nur mit 403 scheitern wuerde. ---- */
+  body.viewer-mode #modBar,
+  body.viewer-mode #chatAnnounceBtn,
+  body.viewer-mode #announceColor,
+  body.viewer-mode .actions .toSelect,
+  body.viewer-mode .actions button.timeout,
+  body.viewer-mode .actions button.del,
+  body.viewer-mode .actions button.ban { display: none; }
+  #statusDot { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); flex-shrink: 0; }
+  #statusDot.connected { background: var(--ok); }
+
+  #settingsPanel {
+    display: none; flex-direction: column; gap: 6px;
+    padding: 10px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  #settingsPanel.open { display: flex; }
+  #settingsPanel label { color: var(--sub); font-size: 11px; }
+  #settingsPanel input {
+    width: 100%; padding: 5px 7px; border-radius: 5px; border: 1px solid var(--border);
+    background: #0a0a0a; color: var(--text); font-size: 12px;
+  }
+  #settingsPanel .row { display: flex; gap: 6px; }
+  #settingsPanel .row > div { flex: 1; }
+  #settingsPanel .hint { color: var(--sub); font-size: 10.5px; line-height: 1.4; }
+  #settingsPanel .saveBtn {
+    background: var(--accent); color: #111; border: none; border-radius: 6px;
+    padding: 7px; cursor: pointer; font-weight: 700; margin-top: 4px;
+  }
+
+  /* ---- Stream Info ---- */
+  #streamInfo {
+    padding: 8px 10px; background: #1b3a63;
+    border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  #streamInfo input {
+    width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border);
+    background: #0a0a0a; color: var(--text); font-size: 13px;
+  }
+  #streamInfo .row { display: flex; gap: 6px; align-items: center; }
+  #titleInput { flex: 1; min-width: 0; }
+  #categoryResults { position: relative; }
+  #categoryDropdown {
+    position: absolute; top: 32px; left: 0; right: 0; z-index: 20;
+    background: #0a0a0a; border: 1px solid var(--accent); border-radius: 6px;
+    max-height: 160px; overflow-y: auto; display: none;
+  }
+  #categoryDropdown.open { display: block; }
+  #categoryDropdown div { padding: 5px 8px; cursor: pointer; font-size: 12px; }
+  #categoryDropdown div:hover { background: rgba(255,255,255,0.08); }
+  #saveInfoBtn {
+    background: var(--accent); color: #111; border: none; border-radius: 6px;
+    padding: 6px 14px; cursor: pointer; font-weight: 700; white-space: nowrap;
+  }
+  #infoStatus { font-size: 11px; color: var(--sub); }
+  #titleCharCount { font-size: 11px; color: var(--sub); flex-shrink: 0; align-self: center; white-space: nowrap; }
+  #titleCharCount.over { color: var(--danger); font-weight: 700; }
+
+  /* ---- Live-Stats: Hype Train & Goals ---- */
+  .liveStatBar {
+    padding: 6px 10px; background: #1c1c1c; border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .liveStatLabel { font-size: 11px; color: var(--accent2); font-weight: 700; }
+  .liveStatTrack {
+    height: 8px; border-radius: 4px; background: #0a0a0a; overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .liveStatFill {
+    height: 100%; width: 0%; background: linear-gradient(90deg, #ff9f5c, #ffd166);
+    transition: width 0.3s ease;
+  }
+  #goalsBar { display: flex; flex-direction: column; }
+  #goalsBar .liveStatBar { border-bottom: 1px solid var(--border); }
+  #goalsBar .liveStatFill { background: linear-gradient(90deg, #6fc9ff, #6ffcaa); }
+
+  /* ---- Login ---- */
+  #loginBtn {
+    background: #9147ff; color: #fff; border: none; border-radius: 6px;
+    padding: 8px; cursor: pointer; font-weight: 700; margin-top: 4px;
+  }
+  #loginBtn:hover { background: #a970ff; }
+  #logoutBtn {
+    background: none; border: 1px solid var(--border); color: var(--sub);
+    border-radius: 6px; padding: 6px; cursor: pointer; font-size: 12px;
+  }
+  .advToggle {
+    background: none; border: none; color: var(--sub); font-size: 11px;
+    cursor: pointer; text-align: left; padding: 4px 0; text-decoration: underline;
+  }
+  #advancedBox { display: none; flex-direction: column; gap: 6px; }
+  #advancedBox.open { display: flex; }
+  #redirectHint {
+    display: inline-block; word-break: break-all; color: var(--accent2);
+    background: #0a0a0a; border: 1px solid var(--border); border-radius: 4px; padding: 2px 5px;
+  }
+
+  /* ---- Mod-Toolbar ---- */
+  #modBar {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 6px 8px; background: #1c1c1c; border-bottom: 1px solid var(--border);
+  }
+  #modBar input[type="number"] {
+    width: 52px; padding: 5px 6px; border-radius: 5px; border: 1px solid var(--border);
+    background: #0a0a0a; color: var(--text); font-size: 12px;
+  }
+  #modBar input#unbanInput {
+    flex: 1; min-width: 110px; padding: 5px 7px; border-radius: 5px; border: 1px solid var(--border);
+    background: #0a0a0a; color: var(--text); font-size: 12px;
+  }
+  .modToggle {
+    background: none; border: 1px solid var(--accent); color: var(--accent2);
+    border-radius: 6px; padding: 4px 9px; cursor: pointer; font-size: 12px; white-space: nowrap;
+  }
+  .modToggle.active { background: var(--ok); border-color: var(--ok); color: #0a0a0a; font-weight: 700; }
+  .modBarSep { flex: 1; min-width: 4px; }
+  #unbanBtn {
+    background: var(--accent); color: #111; border: none; border-radius: 6px;
+    padding: 5px 10px; cursor: pointer; font-weight: 700; font-size: 12px; white-space: nowrap;
+  }
+  .event.automod { border-left-color: #c792ea; color: #c792ea; background: rgba(199, 146, 234, 0.12); }
+  .automodBtns { display: flex; gap: 4px; flex-shrink: 0; }
+  .automodBtns button {
+    background: #232323; border: 1px solid var(--accent); color: var(--text);
+    border-radius: 4px; font-size: 10px; padding: 3px 8px; cursor: pointer; white-space: nowrap;
+  }
+  .automodBtns button.allow { color: var(--ok); border-color: var(--ok); }
+  .automodBtns button.deny { color: var(--danger); border-color: var(--danger); }
+  .automodBtns button:disabled { opacity: 0.6; cursor: default; }
+
+  /* ---- Chat + Events Layout ---- */
+  #mainArea { flex: 1; display: flex; flex-direction: row; min-height: 0; }
+  #chatCol { flex: 1; min-width: 120px; position: relative; display: flex; min-height: 0; }
+  #chatWrap { flex: 1; overflow-y: auto; padding: 6px 8px; min-width: 0; }
+  #dockResizer {
+    width: 6px; flex-shrink: 0; cursor: col-resize; background: var(--border);
+  }
+  #dockResizer:hover, #dockResizer.dragging { background: var(--accent); }
+  #eventsCol {
+    width: 230px; flex-shrink: 0; min-width: 150px; position: relative;
+    display: flex; flex-direction: column; min-height: 0;
+    border-left: 1px solid var(--border); background: #161616;
+  }
+  #eventsWrap { flex: 1; overflow-y: auto; padding: 6px 8px; min-height: 0; }
+  #eventsHeader {
+    font-size: 11px; font-weight: 700; color: var(--sub);
+    text-transform: uppercase; letter-spacing: 0.05em;
+    padding: 8px 10px 6px; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .jumpBtn {
+    display: none; position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: #111; border: none; border-radius: 12px;
+    padding: 4px 12px; font-size: 11px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4); z-index: 5;
+  }
+  .jumpBtn.show { display: block; }
+  .msg {
+    display: flex; gap: 6px; align-items: flex-start;
+    padding: 4px 4px; border-radius: 5px;
+    margin-bottom: 2px;
+  }
+  .msg:hover { background: rgba(255,255,255,0.06); }
+  .msg .who { font-weight: 700; flex-shrink: 0; }
+  .msg .time { color: var(--sub); font-size: 11px; flex-shrink: 0; margin-right: 2px; align-self: center; }
+  .msg .badges { display: inline-flex; gap: 3px; margin-right: 4px; flex-shrink: 0; }
+  .badge {
+    font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
+    line-height: 1.4; color: #111; white-space: nowrap;
+  }
+  .badge.mod { background: #6fdc7f; }
+  .badge.sub { background: #ffd166; }
+  .badge.vip { background: #ff8ad8; }
+  .badge.broadcaster { background: #ff5c5c; }
+  .badge.founder { background: #b28dff; }
+  .badge.follower { background: var(--accent); }
+  .msg .body { flex: 1; min-width: 0; word-break: break-word; }
+  .msg .actions { display: none; gap: 3px; flex-shrink: 0; }
+  .msg:hover .actions { display: flex; }
+  .actions button {
+    background: #232323; border: 1px solid var(--border); color: var(--text);
+    border-radius: 4px; font-size: 10px; padding: 2px 5px; cursor: pointer;
+  }
+  .actions button.ban { color: var(--danger); border-color: var(--danger); }
+  .actions button.del { color: var(--accent2); border-color: var(--accent2); }
+  .actions button.block { color: #ff9f5c; border-color: #ff9f5c; }
+  .actions button.mark { color: #6fc9ff; border-color: #6fc9ff; }
+  .actions button.pin { color: #ffd166; border-color: #ffd166; }
+  .actions button.reply { color: #6ffcaa; border-color: #6ffcaa; }
+  .actions button.at { color: #6fc9ff; border-color: #6fc9ff; }
+  .actions select.toSelect {
+    background: #232323; border: 1px solid var(--border); color: var(--text);
+    border-radius: 4px; font-size: 10px; padding: 2px 3px; cursor: pointer;
+  }
+  .msg.marked { background: rgba(111, 201, 255, 0.1); border-left: 2px solid #6fc9ff; }
+  .msg.pinned { background: rgba(255, 209, 102, 0.1); border-left: 2px solid #ffd166; }
+
+  /* ---- Antworten & @-Erwähnungen ---- */
+  .replyCtx {
+    display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--sub); font-size: 11px; cursor: pointer;
+    border-left: 2px solid var(--border); padding-left: 6px; margin-bottom: 2px;
+  }
+  .replyCtx:hover { color: var(--accent2); border-left-color: var(--accent); }
+  .replyCtx b { color: var(--accent2); font-weight: 600; }
+  .mention { color: #6fc9ff; font-weight: 600; }
+  .mention.me { color: #ffb86f; background: rgba(255, 159, 92, 0.2); border-radius: 3px; padding: 0 3px; }
+  .msg.mentionsMe { background: rgba(255, 159, 92, 0.1); border-left: 2px solid #ff9f5c; }
+  @keyframes msgFlash { from { background: rgba(255,255,255,0.28); } to { background: transparent; } }
+  .msg.flash { animation: msgFlash 1.3s ease-out; }
+
+  /* ---- Angepinnte Nachricht: bleibt oben fest, waehrend der Chat weiterlaeuft ---- */
+  #pinnedMsg {
+    display: none; align-items: flex-start; gap: 6px;
+    padding: 6px 8px; margin: 4px 6px 0; border-radius: 6px;
+    background: rgba(255, 209, 102, 0.12); border: 1px solid #ffd166;
+    font-size: 12px; flex-shrink: 0;
+  }
+  #pinnedMsg.show { display: flex; }
+  #pinnedMsg .pinIcon { flex-shrink: 0; }
+  #pinnedMsg .pinBody { flex: 1; min-width: 0; word-break: break-word; }
+  #pinnedMsg .pinClose {
+    flex-shrink: 0; background: none; border: none; color: var(--sub);
+    cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px;
+  }
+  #pinnedMsg .pinClose:hover { color: var(--text); }
+  .who { cursor: pointer; }
+  .who:hover { text-decoration: underline; }
+  .system { color: var(--sub); font-style: italic; padding: 3px 4px; }
+
+  /* ---- Events (Subs, Bits, Raids, Streaks, Announcements) ---- */
+  .event {
+    padding: 5px 8px; border-radius: 5px; margin-bottom: 3px;
+    font-size: 12px; border-left: 3px solid var(--accent);
+    background: rgba(255,255,255,0.05);
+  }
+  /* Randfarbe + Textfarbe + dezent eingefaerbter Hintergrund pro Event-Typ,
+     damit man beim schnellen Ueberfliegen sofort erkennt, um was es geht,
+     statt nur an der duennen Randlinie zu erkennen. */
+  .event.sub { border-left-color: #ffd166; color: #ffd166; background: rgba(255, 209, 102, 0.12); }
+  .event.bits { border-left-color: #ff9f5c; color: #ff9f5c; background: rgba(255, 159, 92, 0.12); }
+  .event.raid { border-left-color: #b28dff; color: #b28dff; background: rgba(178, 141, 234, 0.12); }
+  .event.streak { border-left-color: #6fc9ff; color: #6fc9ff; background: rgba(111, 201, 255, 0.12); }
+  .event.follow { border-left-color: #6ffcaa; color: #6ffcaa; background: rgba(111, 252, 170, 0.12); }
+  .event.announcement { border-left-color: #6fdc7f; color: #6fdc7f; background: rgba(111, 220, 127, 0.12); }
+  .event.redemption { border-left-color: #ffb86f; color: #ffb86f; background: rgba(255, 184, 111, 0.12); }
+  .event.modaction { border-left-color: #ff5c5c; color: #ff8f8f; background: rgba(255, 92, 92, 0.12); }
+  .event.generic { border-left-color: var(--accent); color: var(--accent2); background: rgba(255,255,255,0.05); }
+  .event { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .event > .evtext { flex: 1; }
+  .refundBtn {
+    background: #232323; border: 1px solid var(--accent); color: var(--text);
+    border-radius: 4px; font-size: 10px; padding: 3px 8px; cursor: pointer;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .refundBtn:disabled { opacity: 0.6; cursor: default; }
+  .event .icon { margin-right: 4px; }
+
+  /* ---- Gelöschte / von Modaktion betroffene Nachrichten ---- */
+  .msg.deleted .body { text-decoration: line-through; opacity: 0.55; }
+  .msg.deleted .body::after { content: " (gelöscht)"; font-style: italic; opacity: 0.8; text-decoration: none; }
+  .msg.modaction { opacity: 0.5; }
+  .msg.modaction .body { text-decoration: line-through; }
+
+  /* ---- Emotes ---- */
+  .emote { height: 1.7em; vertical-align: middle; margin: 0 1px; }
+
+  /* ---- Chat Input ---- */
+  #chatInputBar {
+    display: flex; gap: 6px; padding: 6px 8px;
+    background: #0d1b3d; border-top: 1px solid var(--border);
+  }
+  #chatInputBar input {
+    flex: 1; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border);
+    background: #0a0a0a; color: var(--text); font-size: 13px;
+  }
+  #chatInputBar button {
+    background: var(--accent); color: #111; border: none; border-radius: 6px;
+    padding: 0 14px; cursor: pointer; font-weight: 700;
+  }
+  #chatInputBar select {
+    flex: 0 0 auto; padding: 0 6px; border-radius: 6px; border: 1px solid var(--border);
+    background: #0a0a0a; color: var(--text); font-size: 12px;
+  }
+  #chatAnnounceBtn { padding: 0 10px; }
+
+  /* ---- Antwort-Leiste über dem Eingabefeld ---- */
+  #replyBar {
+    display: none; align-items: center; gap: 8px;
+    padding: 5px 10px; background: #14264d;
+    border-top: 1px solid var(--border); font-size: 12px; color: var(--sub);
+  }
+  #replyBar.show { display: flex; }
+  #replyBar .replyText {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #replyBar .replyText b { color: var(--accent2); }
+  #replyBar button {
+    flex-shrink: 0; background: none; border: none; color: var(--sub);
+    cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 4px;
+  }
+  #replyBar button:hover { color: var(--text); }
+
+  /* ---- @-Vorschlagsliste ---- */
+  #chatInputBar { position: relative; }
+  #mentionPopup {
+    display: none; position: absolute; left: 8px; bottom: calc(100% + 2px);
+    min-width: 180px; max-width: min(320px, calc(100% - 16px)); max-height: 220px;
+    overflow-y: auto; background: #0a0a0a; border: 1px solid var(--accent);
+    border-radius: 6px; z-index: 30; box-shadow: 0 4px 14px rgba(0,0,0,0.55);
+  }
+  #mentionPopup.open { display: block; }
+  .mentionItem {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 5px 9px; font-size: 12px; cursor: pointer;
+  }
+  .mentionItem.active, .mentionItem:hover { background: rgba(255,255,255,0.1); }
+  .mentionItem .sub { color: var(--sub); font-size: 10.5px; }
+
+  /* ---- Schmale Fenster (Laptop-Splitscreen, Tablet): Spalten untereinander ---- */
+  @media (max-width: 680px) {
+    #mainArea { flex-direction: column; }
+    #dockResizer { display: none; }
+    #eventsCol {
+      width: auto !important; border-left: none;
+      border-top: 1px solid var(--border); max-height: 40vh;
+    }
+    #settingsPanel .row { flex-direction: column; }
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
+</style>
+</head>
+<body class="viewer-mode">
+<div id="app">
+
+  <div id="settingsBar">
+    <span class="owl">🦉</span>
+    <span class="name">Eulennest Dock</span>
+    <span id="statusDot"></span>
+    <span id="whoami"></span>
+    <button id="toggleSettings">Einstellungen</button>
+  </div>
+
+  <div id="settingsPanel">
+    <div class="row">
+      <div>
+        <label>Twitch Client-ID</label>
+        <input id="clientId" placeholder="z. B. gp762nuuoqcoxypju8c569th9wz7q5">
+      </div>
+      <div>
+        <label>Kanalname (der zu moderierende Kanal)</label>
+        <input id="channelName" placeholder="kryczeck75">
+      </div>
+    </div>
+
+    <button id="loginBtn">Mit Twitch anmelden</button>
+    <button class="saveBtn" id="saveSettingsBtn">Speichern &amp; Verbinden</button>
+    <button id="logoutBtn">Abmelden</button>
+
+    <button class="advToggle" id="advToggle">Erweitert: Token manuell eintragen ▾</button>
+    <div id="advancedBox">
+      <div>
+        <label>Client Secret (optional, nur für automatischen Token-Refresh)</label>
+        <input id="clientSecret" placeholder="leer lassen, wenn du dich oben anmeldest" type="password">
+      </div>
+      <div>
+        <label>OAuth Access Token (ohne "oauth:" Präfix)</label>
+        <input id="oauthToken" placeholder="wird beim Anmelden automatisch gesetzt" type="password">
+      </div>
+      <div>
+        <label>Refresh Token (optional, nur beim Authorization-Code-Flow)</label>
+        <input id="refreshToken" placeholder="beim Twitch-Login nicht nötig" type="password">
+      </div>
+    </div>
+
+    <div class="hint">
+      <b>Für Mods:</b> Client-ID und Kanalname sind in der Regel schon ausgefüllt, weil sie über den Link mitkommen.
+      Einfach auf „Mit Twitch anmelden“ klicken, den Zugriff bestätigen – fertig. Es wird nichts installiert,
+      kein OBS gebraucht und kein Client Secret. Die Anmeldung gilt nur für diesen Browser; läuft sie ab,
+      erscheint ein Hinweis im Chatfenster und du meldest dich einfach neu an.<br><br>
+
+      <b>Einrichtung (einmalig, durch den Streamer):</b> In der Twitch Developer Console bei der App unter
+      „OAuth Redirect URLs“ genau diese Adresse eintragen:<br>
+      <span id="redirectHint"></span><br>
+      Danach den Mods einen Link in dieser Form schicken:<br>
+      <span id="inviteHint"></span><br><br>
+
+      <b>Angefragte Scopes:</b> chat:read chat:edit moderator:manage:banned_users moderator:manage:chat_messages
+      moderator:manage:chat_settings moderator:manage:announcements moderator:manage:automod
+      moderator:read:followers user:manage:blocked_users channel:manage:broadcast channel:read:redemptions
+      channel:manage:redemptions channel:read:hype_train channel:read:goals.
+      Mods bekommen automatisch nur das, was ihnen im Kanal zusteht – Titel-Editor, Kanalpunkte,
+      Hype Train und Ziele blendet das Dock für sie aus.<br><br>
+
+      <b>Datenschutz:</b> Token und Einstellungen bleiben ausschließlich im localStorage dieses Browsers und
+      gehen an niemanden sonst. Client Secret und Refresh Token nur auf dem eigenen Rechner eintragen und
+      diese Datei mit ausgefüllten Feldern niemals weitergeben.
+    </div>
+  </div>
+
+  <div id="streamInfo">
+    <div class="row">
+      <input id="titleInput" placeholder="Stream-Titel...">
+      <span id="titleCharCount">0/140</span>
+    </div>
+    <div class="row" id="categoryResults">
+      <input id="categoryInput" placeholder="Kategorie / Spiel suchen...">
+      <button id="saveInfoBtn">Speichern</button>
+    </div>
+    <div id="categoryDropdown"></div>
+    <div id="infoStatus"></div>
+  </div>
+
+  <div id="hypeTrainBar" class="liveStatBar" style="display:none;">
+    <div class="liveStatLabel"></div>
+    <div class="liveStatTrack"><div class="liveStatFill"></div></div>
+  </div>
+
+  <div id="goalsBar" style="display:none;"></div>
+
+  <div id="modBar">
+    <button id="slowModeBtn" class="modToggle" title="Slow Mode ein/aus">🐌 Slow</button>
+    <input id="slowSeconds" type="number" min="1" max="1800" value="30" title="Slow-Mode Sekunden">
+    <button id="followerModeBtn" class="modToggle" title="Nur Follower dürfen schreiben">➡️ Follower</button>
+    <button id="emoteModeBtn" class="modToggle" title="Nur Emotes erlaubt">🙂 Emote</button>
+    <span class="modBarSep"></span>
+    <input id="unbanInput" placeholder="Username entbannen...">
+    <button id="unbanBtn">Entbannen</button>
+  </div>
+
+  <div id="mainArea">
+    <div id="chatCol">
+      <div id="pinnedMsg"></div>
+      <div id="chatWrap"></div>
+      <button id="chatJumpBtn" class="jumpBtn">▼ Neue Nachrichten</button>
+    </div>
+    <div id="dockResizer" title="Breite ziehen"></div>
+    <div id="eventsCol">
+      <div id="eventsHeader">Events</div>
+      <div id="eventsWrap"></div>
+      <button id="eventsJumpBtn" class="jumpBtn">▼ Neu</button>
+    </div>
+  </div>
+
+  <div id="replyBar">
+    <span class="replyText" id="replyText"></span>
+    <button id="replyCancel" title="Antwort abbrechen (Esc)">✕</button>
+  </div>
+
+  <div id="chatInputBar">
+    <div id="mentionPopup" role="listbox"></div>
+    <input id="chatInput" placeholder="Nachricht an den Chat... (@ für Namen)" autocomplete="off">
+    <select id="announceColor" title="Ankündigungsfarbe">
+      <option value="primary">Standard</option>
+      <option value="blue">Blau</option>
+      <option value="green">Grün</option>
+      <option value="orange">Orange</option>
+      <option value="purple">Lila</option>
+    </select>
+    <button id="chatAnnounceBtn" title="Als Ankündigung senden">📢</button>
+    <button id="chatSendBtn">Senden</button>
+  </div>
+
+
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  const statusDot = $("statusDot");
+  const chatWrap = $("chatWrap");
+  const eventsWrap = $("eventsWrap");
+  const pinnedMsgBox = $("pinnedMsg");
+  const settingsPanel = $("settingsPanel");
+  const mainArea = $("mainArea");
+  const eventsCol = $("eventsCol");
+  const dockResizer = $("dockResizer");
+  const chatJumpBtn = $("chatJumpBtn");
+  const eventsJumpBtn = $("eventsJumpBtn");
+  const slowModeBtn = $("slowModeBtn");
+  const slowSeconds = $("slowSeconds");
+  const followerModeBtn = $("followerModeBtn");
+  const emoteModeBtn = $("emoteModeBtn");
+  const unbanInput = $("unbanInput");
+  const unbanBtn = $("unbanBtn");
+  const chatAnnounceBtn = $("chatAnnounceBtn");
+  const announceColor = $("announceColor");
+
+  // ---- Breite des Events-Panels per Maus ziehbar, Breite wird gemerkt ----
+  const savedEventsWidth = parseInt(localStorage.getItem("eulennest_dock_events_width"), 10);
+  if (!isNaN(savedEventsWidth)) eventsCol.style.width = savedEventsWidth + "px";
+
+  let resizingDock = false;
+  dockResizer.addEventListener("mousedown", (e) => {
+    resizingDock = true;
+    dockResizer.classList.add("dragging");
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!resizingDock) return;
+    const rect = mainArea.getBoundingClientRect();
+    let newWidth = rect.right - e.clientX;
+    newWidth = Math.max(150, Math.min(newWidth, rect.width - 150));
+    eventsCol.style.width = newWidth + "px";
+  });
+  document.addEventListener("mouseup", () => {
+    if (!resizingDock) return;
+    resizingDock = false;
+    dockResizer.classList.remove("dragging");
+    document.body.style.userSelect = "";
+    localStorage.setItem("eulennest_dock_events_width", parseInt(eventsCol.style.width, 10));
+  });
+
+  // ---- Autoscroll: nur automatisch runterscrollen, wenn man schon unten war;
+  // sonst "Neue Nachrichten"-Button einblenden, der zum Ende springt ----
+  function isNearBottom(el) {
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  }
+  function setupStickyScroll(container, jumpBtn) {
+    container.addEventListener("scroll", () => {
+      if (isNearBottom(container)) jumpBtn.classList.remove("show");
+    });
+    jumpBtn.addEventListener("click", () => {
+      container.scrollTop = container.scrollHeight;
+      jumpBtn.classList.remove("show");
+    });
+  }
+  function appendSticky(container, jumpBtn, node) {
+    const wasAtBottom = isNearBottom(container);
+    container.appendChild(node);
+    if (wasAtBottom) {
+      container.scrollTop = container.scrollHeight;
+    } else {
+      jumpBtn.classList.add("show");
+    }
+  }
+  setupStickyScroll(chatWrap, chatJumpBtn);
+  setupStickyScroll(eventsWrap, eventsJumpBtn);
+
+  let cfg = JSON.parse(localStorage.getItem("eulennest_dock_cfg") || "{}");
+  $("clientId").value = cfg.clientId || "";
+  $("channelName").value = cfg.channelName || "";
+  $("clientSecret").value = cfg.clientSecret || "";
+  $("oauthToken").value = cfg.oauthToken || "";
+  $("refreshToken").value = cfg.refreshToken || "";
+
+  // ---- Konfiguration per Link vorbelegen: ?client_id=...&channel=... ----
+  // So muss ein Mod nichts abtippen, sondern nur den Link öffnen.
+  (function applyUrlConfig() {
+    const q = new URLSearchParams(location.search);
+    if (!q.get("client_id") && !q.get("channel")) return;
+    if (q.get("client_id")) cfg.clientId = q.get("client_id").trim();
+    if (q.get("channel")) cfg.channelName = q.get("channel").trim().toLowerCase().replace(/^#/, "");
+    saveCfg();
+    $("clientId").value = cfg.clientId || "";
+    $("channelName").value = cfg.channelName || "";
+    history.replaceState(null, "", location.pathname + location.hash);
+  })();
+
+  let broadcasterId = null;
+  let moderatorId = null;
+  let isBroadcaster = false;
+  let isRealModerator = null; // null = noch unbekannt, bis die erste EventSub-Antwort da ist
+  let selfLogin = null;
+  let selfDisplayName = null;
+  let ws = null;
+  let reconnectTimer = null;
+  let refreshTimer = null;
+  let eventSubWs = null;
+  let eventSubReconnectTimer = null;
+
+  // ---- Sockets sauber schließen ----
+  // Wichtig: erst die Handler abhängen, dann close(). Sonst feuert onclose und
+  // legt ZUSÄTZLICH einen Reconnect-Timer an -> doppelte Verbindungen,
+  // doppelte Chatnachrichten, doppelte EventSub-Subscriptions.
+  function closeSocket(sock) {
+    if (!sock) return;
+    sock.onopen = null;
+    sock.onmessage = null;
+    sock.onerror = null;
+    sock.onclose = null;
+    try { sock.close(); } catch (e) { /* egal */ }
+  }
+
+  function teardownConnections() {
+    clearTimeout(reconnectTimer);
+    clearTimeout(eventSubReconnectTimer);
+    closeSocket(ws); ws = null;
+    closeSocket(eventSubWs); eventSubWs = null;
+    statusDot.classList.remove("connected");
+    chatters.clear();
+    closeMentionPopup();
+    resetReply();
+  }
+
+  $("toggleSettings").onclick = () => settingsPanel.classList.toggle("open");
+
+  $("advToggle").onclick = () => $("advancedBox").classList.toggle("open");
+
+  $("saveSettingsBtn").onclick = () => {
+    cfg = {
+      clientId: $("clientId").value.trim(),
+      channelName: $("channelName").value.trim().toLowerCase().replace(/^#/, ""),
+      clientSecret: $("clientSecret").value.trim(),
+      oauthToken: $("oauthToken").value.trim().replace(/^oauth:/, ""),
+      refreshToken: $("refreshToken").value.trim()
+    };
+    saveCfg();
+    settingsPanel.classList.remove("open");
+    init();
+  };
+
+  // ---- Anmeldung direkt über Twitch (Implicit Flow) ----
+  // Braucht kein Client Secret und keinen Server - darum kann das Dock so an
+  // Mods weitergegeben werden. Der Preis: kein Refresh Token, nach Ablauf
+  // meldet man sich einfach neu an.
+  const SCOPES = [
+    "chat:read", "chat:edit",
+    "moderator:manage:banned_users",
+    "moderator:manage:chat_messages",
+    "moderator:manage:chat_settings",
+    "moderator:manage:announcements",
+    "moderator:manage:automod",
+    "moderator:read:followers",
+    "user:manage:blocked_users",
+    "channel:manage:broadcast",
+    "channel:read:redemptions",
+    "channel:manage:redemptions",
+    "channel:read:hype_train",
+    "channel:read:goals"
+  ];
+
+  function redirectUri() {
+    return location.origin + location.pathname;
+  }
+
+  function startLogin() {
+    const clientId = $("clientId").value.trim();
+    const channel = $("channelName").value.trim().toLowerCase().replace(/^#/, "");
+    if (!clientId) {
+      systemMsg("Bitte zuerst die Client-ID eintragen (oder den Link mit ?client_id=... öffnen).");
+      return;
+    }
+    if (location.protocol === "file:") {
+      systemMsg("Der Twitch-Login funktioniert nur über http(s). Diese Datei liegt als lokale Datei - bitte über die gehostete Adresse öffnen.");
+      return;
+    }
+    cfg.clientId = clientId;
+    if (channel) cfg.channelName = channel;
+    saveCfg();
+    location.href = "https://id.twitch.tv/oauth2/authorize"
+      + "?client_id=" + encodeURIComponent(clientId)
+      + "&redirect_uri=" + encodeURIComponent(redirectUri())
+      + "&response_type=token"
+      + "&force_verify=true"
+      + "&scope=" + encodeURIComponent(SCOPES.join(" "));
+  }
+
+  // Nach dem Login liefert Twitch den Token im URL-Fragment zurück.
+  function consumeImplicitToken() {
+    if (!location.hash || location.hash.length < 2) return false;
+    const h = new URLSearchParams(location.hash.slice(1));
+    const token = h.get("access_token");
+    const err = h.get("error_description") || h.get("error");
+    history.replaceState(null, "", location.pathname + location.search);
+    if (!token) {
+      if (err) systemMsg("Anmeldung abgebrochen: " + err);
+      return false;
+    }
+    cfg.oauthToken = token;
+    cfg.refreshToken = ""; // Implicit Flow liefert keinen Refresh Token
+    saveCfg();
+    return true;
+  }
+
+  $("loginBtn").onclick = startLogin;
+
+  $("logoutBtn").onclick = () => {
+    teardownConnections();
+    cfg.oauthToken = "";
+    cfg.refreshToken = "";
+    cfg.clientSecret = "";
+    saveCfg();
+    $("oauthToken").value = "";
+    $("refreshToken").value = "";
+    $("clientSecret").value = "";
+    broadcasterId = null; moderatorId = null;
+    selfLogin = null; selfDisplayName = null; isBroadcaster = false;
+    isRealModerator = null;
+    document.body.classList.add("viewer-mode"); // wieder auf "verborgen", bis neu bestätigt
+    $("whoami").textContent = "";
+    $("streamInfo").style.display = "none";
+    settingsPanel.classList.add("open");
+    systemMsg("Abgemeldet.");
+  };
+
+  function saveCfg() {
+    localStorage.setItem("eulennest_dock_cfg", JSON.stringify(cfg));
+  }
+
+  function systemMsg(text) {
+    const div = document.createElement("div");
+    div.className = "system";
+    div.textContent = text;
+    // Sticky-Scroll respektieren: wer hochgescrollt liest, wird nicht rausgerissen
+    appendSticky(chatWrap, chatJumpBtn, div);
+    while (chatWrap.children.length > 500) chatWrap.removeChild(chatWrap.firstChild);
+  }
+
+  // ---- Token Refresh ----
+  let lastExpiredNotice = 0;
+  async function refreshAccessToken() {
+    if (!cfg.refreshToken || !cfg.clientSecret) {
+      // Normalfall beim Twitch-Login: einfach neu anmelden statt Token basteln.
+      if (Date.now() - lastExpiredNotice > 30000) {
+        lastExpiredNotice = Date.now();
+        systemMsg("Die Anmeldung ist abgelaufen – bitte in den Einstellungen neu mit Twitch anmelden.");
+      }
+      settingsPanel.classList.add("open");
+      return false;
+    }
+    try {
+      const params = new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: cfg.refreshToken,
+        client_id: cfg.clientId,
+        client_secret: cfg.clientSecret
+      });
+      const res = await fetch("https://id.twitch.tv/oauth2/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString()
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      cfg.oauthToken = data.access_token;
+      // Twitch rotiert den Refresh Token bei jedem Refresh - neuen Wert übernehmen
+      if (data.refresh_token) cfg.refreshToken = data.refresh_token;
+      saveCfg();
+      $("oauthToken").value = cfg.oauthToken;
+      $("refreshToken").value = cfg.refreshToken;
+      systemMsg("Access Token automatisch erneuert ✓");
+      return true;
+    } catch (e) {
+      systemMsg("Token-Erneuerung fehlgeschlagen: " + e.message);
+      return false;
+    }
+  }
+
+  function scheduleProactiveRefresh() {
+    clearTimeout(refreshTimer);
+    // Twitch Access Tokens laufen i.d.R. nach ~4h ab - vorsorglich nach 3.5h erneuern
+    refreshTimer = setTimeout(async () => {
+      await refreshAccessToken();
+      scheduleProactiveRefresh();
+    }, 3.5 * 60 * 60 * 1000);
+  }
+
+  async function tokenIsInvalid() {
+    try {
+      const r = await fetch("https://id.twitch.tv/oauth2/validate", {
+        headers: { "Authorization": "OAuth " + cfg.oauthToken }
+      });
+      return r.status === 401;
+    } catch (e) {
+      return false; // Netzwerkproblem: nicht voreilig "abgelaufen" melden
+    }
+  }
+
+  // ---- Helix API helper (mit automatischem Retry nach Refresh) ----
+  async function helix(path, method = "GET", body = null, _retried = false) {
+    const res = await fetch("https://api.twitch.tv/helix" + path, {
+      method,
+      headers: {
+        "Client-ID": cfg.clientId,
+        "Authorization": "Bearer " + cfg.oauthToken,
+        "Content-Type": "application/json"
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+
+    if (res.status === 401 && !_retried) {
+      // 401 heißt nicht automatisch "Token abgelaufen": Twitch antwortet auch
+      // dann mit 401, wenn nur das Recht fehlt (z. B. Follower-Abfrage als
+      // Nicht-Mod). Darum erst prüfen, ob das Token selbst noch gültig ist.
+      if (await tokenIsInvalid()) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) return helix(path, method, body, true);
+      }
+    }
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`${method} ${path} -> ${res.status}: ${errText}`);
+    }
+    if (res.status === 204) return null;
+    return res.json();
+  }
+
+  async function loadIdsAndInfo() {
+    const userRes = await helix(`/users?login=${encodeURIComponent(cfg.channelName)}`);
+    if (!userRes.data || !userRes.data.length) throw new Error("Kanal nicht gefunden");
+    broadcasterId = userRes.data[0].id;
+    rememberChatter(userRes.data[0].login, userRes.data[0].display_name, null, false);
+
+    // Wer gehört zum Token? /users ohne Parameter liefert den Token-Inhaber.
+    // Nur DIESE ID darf als moderator_user_id gehen - sonst 401 auf allen
+    // Mod-Endpunkten, sobald das Token nicht dem Broadcaster selbst gehört
+    // (Bot-Account, oder das Dock läuft bei einem deiner Mods).
+    const meRes = await helix("/users");
+    if (!meRes.data || !meRes.data.length) throw new Error("Token-Inhaber nicht ermittelbar");
+    moderatorId = meRes.data[0].id;
+    selfLogin = meRes.data[0].login;
+    selfDisplayName = meRes.data[0].display_name || selfLogin;
+    isBroadcaster = (moderatorId === broadcasterId);
+    // Erst mal nur der Name, ohne "(Mod)" zu unterstellen - das wird erst
+    // nachgetragen, wenn echte Mod-Rechte tatsächlich bestätigt sind.
+    $("whoami").textContent = selfDisplayName;
+    // Titel/Kategorie bearbeiten geht nur mit Broadcaster-Token - für Mods ausblenden.
+    $("streamInfo").style.display = isBroadcaster ? "flex" : "none";
+    if (isBroadcaster) {
+      revealModTools();
+    } else {
+      systemMsg(`Angemeldet als ${selfDisplayName} in #${cfg.channelName}.`);
+    }
+
+    const chInfo = await helix(`/channels?broadcaster_id=${broadcasterId}`);
+    if (chInfo.data && chInfo.data.length) {
+      $("titleInput").value = chInfo.data[0].title || "";
+      $("categoryInput").value = chInfo.data[0].game_name || "";
+      updateTitleCharCount();
+    }
+
+    await loadChatSettings();
+  }
+
+  // ---- Chat-Modi: Slow / Follower-only / Emote-only ----
+  async function loadChatSettings() {
+    try {
+      const res = await helix(`/chat/settings?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}`);
+      const s = res.data && res.data[0];
+      if (!s) return;
+      slowModeBtn.classList.toggle("active", !!s.slow_mode);
+      if (s.slow_mode_wait_time) slowSeconds.value = s.slow_mode_wait_time;
+      followerModeBtn.classList.toggle("active", !!s.follower_mode);
+      emoteModeBtn.classList.toggle("active", !!s.emote_mode);
+    } catch (e) {
+      systemMsg("Chat-Einstellungen konnten nicht geladen werden (Scope moderator:manage:chat_settings?): " + e.message);
+    }
+  }
+
+  async function patchChatSettings(body) {
+    await helix(`/chat/settings?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}`, "PATCH", body);
+    await loadChatSettings();
+  }
+
+  slowModeBtn.onclick = () => {
+    const turningOn = !slowModeBtn.classList.contains("active");
+    const seconds = Math.max(1, parseInt(slowSeconds.value, 10) || 30);
+    patchChatSettings({ slow_mode: turningOn, slow_mode_wait_time: seconds })
+      .catch(e => systemMsg("Fehler Slow Mode: " + e.message));
+  };
+  followerModeBtn.onclick = () => {
+    const turningOn = !followerModeBtn.classList.contains("active");
+    patchChatSettings({ follower_mode: turningOn, follower_mode_duration: 0 })
+      .catch(e => systemMsg("Fehler Follower-Only: " + e.message));
+  };
+  emoteModeBtn.onclick = () => {
+    const turningOn = !emoteModeBtn.classList.contains("active");
+    patchChatSettings({ emote_mode: turningOn })
+      .catch(e => systemMsg("Fehler Emote-Only: " + e.message));
+  };
+
+  // ---- Unban per Username ----
+  unbanBtn.onclick = async () => {
+    const username = unbanInput.value.trim().toLowerCase().replace(/^@/, "");
+    if (!username) return;
+    unbanBtn.disabled = true;
+    try {
+      const userRes = await helix(`/users?login=${encodeURIComponent(username)}`);
+      if (!userRes.data || !userRes.data.length) throw new Error("User nicht gefunden");
+      await helix(`/moderation/bans?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}&user_id=${userRes.data[0].id}`, "DELETE");
+      systemMsg(`${username} wurde entbannt ✓`);
+      unbanInput.value = "";
+    } catch (e) {
+      systemMsg("Entbannen fehlgeschlagen: " + e.message);
+    } finally {
+      unbanBtn.disabled = false;
+    }
+  };
+  unbanInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") unbanBtn.onclick();
+  });
+
+  // ---- Ankündigung senden ----
+  chatAnnounceBtn.onclick = async () => {
+    const text = $("chatInput").value.trim();
+    if (!text) return;
+    chatAnnounceBtn.disabled = true;
+    try {
+      await helix(`/chat/announcements?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}`, "POST", {
+        message: text, color: announceColor.value
+      });
+      eventMsg(`<b>Ankündigung:</b> ${escapeHtml(text)}`, "announcement", "📢");
+      resetReply();
+      $("chatInput").value = "";
+    } catch (e) {
+      systemMsg("Ankündigung fehlgeschlagen: " + e.message);
+    } finally {
+      chatAnnounceBtn.disabled = false;
+    }
+  };
+
+  // ---- Stream Info Editor ----
+  let categorySearchTimer;
+  let selectedCategoryId = null;
+
+  $("categoryInput").addEventListener("input", () => {
+    selectedCategoryId = null;
+    clearTimeout(categorySearchTimer);
+    const q = $("categoryInput").value.trim();
+    if (!q) { $("categoryDropdown").classList.remove("open"); return; }
+    categorySearchTimer = setTimeout(async () => {
+      try {
+        const res = await helix(`/search/categories?query=${encodeURIComponent(q)}&first=8`);
+        const dd = $("categoryDropdown");
+        dd.innerHTML = "";
+        (res.data || []).forEach(cat => {
+          const item = document.createElement("div");
+          item.textContent = cat.name;
+          item.onclick = () => {
+            $("categoryInput").value = cat.name;
+            selectedCategoryId = cat.id;
+            dd.classList.remove("open");
+          };
+          dd.appendChild(item);
+        });
+        dd.classList.toggle("open", (res.data || []).length > 0);
+      } catch (e) { /* ignore search errors */ }
+    }, 350);
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!$("categoryResults").contains(e.target)) $("categoryDropdown").classList.remove("open");
+  });
+
+  // ---- Zeichenzähler für Streamtitel (Twitch-Limit: 140 Zeichen) ----
+  const titleCharCount = $("titleCharCount");
+  function updateTitleCharCount() {
+    const len = $("titleInput").value.length;
+    titleCharCount.textContent = `${len}/140`;
+    titleCharCount.classList.toggle("over", len > 140);
+  }
+  $("titleInput").addEventListener("input", updateTitleCharCount);
+  updateTitleCharCount();
+
+  $("saveInfoBtn").onclick = async () => {
+    if (!broadcasterId) return;
+    const title = $("titleInput").value;
+    if (title.length > 140) {
+      $("infoStatus").textContent = `Titel zu lang (${title.length}/140) – bitte kürzen.`;
+      return;
+    }
+    const body = { title };
+    if (selectedCategoryId) body.game_id = selectedCategoryId;
+    try {
+      $("infoStatus").textContent = "Speichere...";
+      await helix(`/channels?broadcaster_id=${broadcasterId}`, "PATCH", body);
+      $("infoStatus").textContent = "Gespeichert ✓";
+      setTimeout(() => $("infoStatus").textContent = "", 2500);
+    } catch (e) {
+      $("infoStatus").textContent = "Fehler: " + e.message;
+    }
+  };
+
+  // ---- Moderation actions ----
+  async function timeoutUser(userId, seconds, reason) {
+    await helix(`/moderation/bans?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}`, "POST", {
+      data: { user_id: userId, duration: seconds, reason: reason || "" }
+    });
+  }
+  async function banUser(userId, reason) {
+    await helix(`/moderation/bans?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}`, "POST", {
+      data: { user_id: userId, reason: reason || "" }
+    });
+  }
+  async function deleteMessage(messageId) {
+    await helix(`/moderation/chat?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}&message_id=${messageId}`, "DELETE");
+  }
+  async function blockUser(userId) {
+    await helix(`/users/blocks?target_user_id=${userId}`, "PUT");
+  }
+
+  // ---- Angepinnte Nachricht (nur lokal im Dock, nicht fuer Zuschauer sichtbar -
+  // Twitch bietet kein Mod-API zum echten Anpinnen im Chat) ----
+  let pinnedMsgId = null;
+
+  function pinMessage(msgId, displayName, color, bodyHtml) {
+    if (pinnedMsgId) {
+      const prevRow = chatWrap.querySelector(`[data-msgid="${cssEscape(pinnedMsgId)}"]`);
+      if (prevRow) prevRow.classList.remove("pinned");
+    }
+    pinnedMsgId = msgId;
+    const row = chatWrap.querySelector(`[data-msgid="${cssEscape(msgId)}"]`);
+    if (row) row.classList.add("pinned");
+
+    pinnedMsgBox.innerHTML = "";
+    const icon = document.createElement("span");
+    icon.className = "pinIcon";
+    icon.textContent = "📌";
+    const body = document.createElement("span");
+    body.className = "pinBody";
+    body.innerHTML = `<b style="color:${escapeAttr(color)}">${escapeHtml(displayName)}:</b> ` + bodyHtml;
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "pinClose";
+    closeBtn.title = "Pin entfernen";
+    closeBtn.textContent = "✕";
+    closeBtn.onclick = unpinMessage;
+    pinnedMsgBox.append(icon, body, closeBtn);
+    pinnedMsgBox.classList.add("show");
+  }
+
+  // ---- Mod-Rechte sind standardmäßig unsichtbar (body.viewer-mode ist von
+  // Anfang an im HTML gesetzt) und werden erst eingeblendet, sobald sie
+  // wirklich bestätigt sind - nie umgekehrt. So sieht ein normaler Zuschauer
+  // zu keinem Zeitpunkt die Mod-Leiste oder Mod-Buttons an Nachrichten,
+  // auch nicht kurz, während das Dock noch prüft. ----
+  function revealModTools() {
+    if (isRealModerator === true) return; // schon bestätigt
+    isRealModerator = true;
+    document.body.classList.remove("viewer-mode");
+    if (!isBroadcaster) {
+      $("whoami").textContent = selfDisplayName + " (Mod)";
+      preloadFollowers();
+    }
+  }
+
+  // Twitch lehnt moderator-gebundene EventSub-Subscriptions mit genau dieser
+  // Meldung ab, wenn der Account zwar eingeloggt ist, aber im Kanal kein Mod-
+  // Recht hat - unabhaengig davon, welche Scopes er beim Login bestaetigt hat.
+  function markAsViewerOnly() {
+    if (isRealModerator !== null) return; // schon entschieden (Mod oder Nicht-Mod), nicht nochmal anzeigen
+    isRealModerator = false;
+    // Klasse ist bereits von Anfang an gesetzt - hier nur noch der Hinweistext.
+    systemMsg(`Dieser Account ist kein Moderator in #${cfg.channelName} - Mod-Funktionen sind ausgeblendet. Chat lesen und schreiben geht trotzdem.`);
+  }
+
+  function unpinMessage() {
+    if (pinnedMsgId) {
+      const row = chatWrap.querySelector(`[data-msgid="${cssEscape(pinnedMsgId)}"]`);
+      if (row) row.classList.remove("pinned");
+    }
+    pinnedMsgId = null;
+    pinnedMsgBox.classList.remove("show");
+    pinnedMsgBox.innerHTML = "";
+  }
+
+  // ---- Markierte User ----
+  const markedUsers = new Set();
+
+  function toggleMarkUser(login) {
+    if (markedUsers.has(login)) markedUsers.delete(login);
+    else markedUsers.add(login);
+    // Alle bereits angezeigten Nachrichten dieses Users neu einfärben
+    chatWrap.querySelectorAll(`[data-login="${cssEscape(login)}"]`).forEach(row => {
+      row.classList.toggle("marked", markedUsers.has(login));
+    });
+  }
+
+  function cssEscape(str) {
+    if (window.CSS && typeof CSS.escape === "function") return CSS.escape(String(str));
+    return String(str).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  }
+
+  // ---- Bekannte Chatter für die @-Vorschlagsliste ----
+  // Sammelt alle, die geschrieben haben, dazu JOINs, Follower/Einlöser aus
+  // EventSub und den Kanalinhaber. Die Map hält die Reihenfolge der letzten
+  // Aktivität, ältester Eintrag vorn - so lässt sich sauber begrenzen.
+  const chatters = new Map(); // login -> { login, displayName, color, last }
+  const MAX_CHATTERS = 3000;
+
+  function rememberChatter(login, displayName, color, spoke) {
+    if (!login) return;
+    login = String(login).toLowerCase();
+    let entry = chatters.get(login);
+    if (entry) chatters.delete(login);
+    else entry = { login, displayName: displayName || login, color: null, last: 0 };
+    if (displayName) entry.displayName = displayName;
+    if (color) entry.color = color;
+    if (spoke) entry.last = Date.now();
+    chatters.set(login, entry);
+    if (chatters.size > MAX_CHATTERS) chatters.delete(chatters.keys().next().value);
+  }
+
+  function findChatters(query) {
+    const q = query.toLowerCase();
+    const hits = [];
+    for (const e of chatters.values()) {
+      if (e.login === selfLogin) continue;
+      const dn = e.displayName.toLowerCase();
+      let rank;
+      if (!q || e.login.startsWith(q) || dn.startsWith(q)) rank = 0;
+      else if (e.login.includes(q) || dn.includes(q)) rank = 1;
+      else continue;
+      hits.push({ e, rank });
+    }
+    hits.sort((a, b) => a.rank - b.rank || b.e.last - a.e.last || a.e.login.localeCompare(b.e.login));
+    return hits.slice(0, 8).map(h => h.e);
+  }
+
+  // Für @ nehmen wir den Anzeigenamen, aber nur, wenn er aus normalen Zeichen
+  // besteht - bei Namen mit Sonderzeichen geht der Login sicher durch.
+  function mentionHandle(displayName, login) {
+    return /^\w+$/.test(displayName || "") ? displayName : login;
+  }
+
+  // ---- @-Autocomplete im Eingabefeld ----
+  const chatInput = $("chatInput");
+  const mentionPopup = $("mentionPopup");
+  let mentionMatches = [];
+  let mentionIndex = 0;
+
+  // Der Text direkt vor dem Cursor, falls dort gerade ein @-Name getippt wird.
+  function currentMentionQuery() {
+    const caret = chatInput.selectionStart;
+    if (caret == null || caret !== chatInput.selectionEnd) return null;
+    const m = chatInput.value.slice(0, caret).match(/(^|\s)@(\w*)$/);
+    return m ? m[2] : null;
+  }
+
+  function closeMentionPopup() {
+    mentionPopup.classList.remove("open");
+    mentionPopup.innerHTML = "";
+    mentionMatches = [];
+    mentionIndex = 0;
+  }
+
+  function renderMentionPopup() {
+    mentionPopup.innerHTML = "";
+    mentionMatches.forEach((entry, i) => {
+      const item = document.createElement("div");
+      item.className = "mentionItem" + (i === mentionIndex ? " active" : "");
+      item.setAttribute("role", "option");
+      const name = document.createElement("span");
+      name.textContent = entry.displayName;
+      name.style.color = entry.color || "var(--accent2)";
+      item.appendChild(name);
+      if (entry.displayName.toLowerCase() !== entry.login) {
+        const sub = document.createElement("span");
+        sub.className = "sub";
+        sub.textContent = entry.login;
+        item.appendChild(sub);
+      }
+      // mousedown statt click: verhindert, dass das Eingabefeld den Fokus verliert
+      item.addEventListener("mousedown", (e) => { e.preventDefault(); applyMention(entry); });
+      mentionPopup.appendChild(item);
+    });
+    mentionPopup.classList.add("open");
+    const a = mentionPopup.children[mentionIndex];
+    if (a) {
+      if (a.offsetTop < mentionPopup.scrollTop) mentionPopup.scrollTop = a.offsetTop;
+      else if (a.offsetTop + a.offsetHeight > mentionPopup.scrollTop + mentionPopup.clientHeight) {
+        mentionPopup.scrollTop = a.offsetTop + a.offsetHeight - mentionPopup.clientHeight;
+      }
+    }
+  }
+
+  function updateMentionPopup() {
+    const q = currentMentionQuery();
+    if (q === null) { closeMentionPopup(); return; }
+    mentionMatches = findChatters(q);
+    if (!mentionMatches.length) { closeMentionPopup(); return; }
+    mentionIndex = 0;
+    renderMentionPopup();
+  }
+
+  function applyMention(entry) {
+    const caret = chatInput.selectionStart;
+    const before = chatInput.value.slice(0, caret);
+    const after = chatInput.value.slice(caret);
+    const m = before.match(/(^|\s)@(\w*)$/);
+    if (!m) { closeMentionPopup(); return; }
+    const atPos = before.length - m[2].length - 1;
+    const spaceFollows = /^\s/.test(after);
+    const insert = "@" + mentionHandle(entry.displayName, entry.login) + (spaceFollows ? "" : " ");
+    chatInput.value = before.slice(0, atPos) + insert + after;
+    const pos = atPos + insert.length + (spaceFollows ? 1 : 0);
+    chatInput.setSelectionRange(pos, pos);
+    closeMentionPopup();
+    chatInput.focus();
+  }
+
+  // "@"-Button an einer Nachricht: Namen ans Ende des Eingabefelds hängen
+  function insertMention(login, displayName) {
+    const tag = "@" + mentionHandle(displayName, login) + " ";
+    const v = chatInput.value;
+    chatInput.value = (v && !/\s$/.test(v)) ? v + " " + tag : v + tag;
+    closeMentionPopup();
+    chatInput.focus();
+    const end = chatInput.value.length;
+    chatInput.setSelectionRange(end, end);
+  }
+
+  // ---- Antworten (Reply) ----
+  // Wie im Twitch-Chat selbst bleibt das Eingabefeld leer: Die Leiste zeigt,
+  // auf wen geantwortet wird, und Twitch setzt das "@Name" beim Senden von
+  // selbst vor den Text. Ein zusätzlich vorbelegtes "@Name" erschien darum doppelt.
+  let replyTarget = null; // { msgId, login, displayName, text }
+  const replyBar = $("replyBar");
+  const replyTextEl = $("replyText");
+
+  function resetReply() {
+    replyTarget = null;
+    replyBar.classList.remove("show");
+    replyTextEl.textContent = "";
+  }
+
+  function cancelReply() {
+    resetReply();
+  }
+
+  function startReply(t) {
+    replyTarget = { msgId: t.msgId, login: t.login, displayName: t.displayName, text: t.text };
+    replyTextEl.innerHTML = "";
+    const name = document.createElement("b");
+    name.textContent = t.displayName;
+    replyTextEl.append(document.createTextNode("↩ Antwort an "), name, document.createTextNode(": " + t.text));
+    replyTextEl.title = t.text;
+    replyBar.classList.add("show");
+    closeMentionPopup();
+    chatInput.focus();
+  }
+
+  $("replyCancel").onclick = () => { cancelReply(); chatInput.focus(); };
+
+  // Kleine Kopfzeile "↪ @Name: Text" über einer Antwort - Klick springt zur Originalnachricht
+  function buildReplyCtx(p) {
+    const el = document.createElement("div");
+    el.className = "replyCtx";
+    el.title = `Antwort auf ${p.name}: ${p.text}`;
+    const b = document.createElement("b");
+    b.textContent = "↪ @" + p.name;
+    el.append(b, document.createTextNode(": " + p.text));
+    el.onclick = () => jumpToMessage(p.msgId);
+    return el;
+  }
+
+  function jumpToMessage(msgId) {
+    const row = chatWrap.querySelector(`[data-msgid="${cssEscape(msgId)}"]`);
+    if (!row) return; // Originalnachricht ist schon aus dem Verlauf gerutscht
+    row.scrollIntoView({ block: "center", behavior: "smooth" });
+    row.classList.remove("flash");
+    void row.offsetWidth; // Animation neu starten
+    row.classList.add("flash");
+    setTimeout(() => row.classList.remove("flash"), 1400);
+  }
+
+  // ---- Eigene Nachrichten senden ----
+  function sendChatMessage() {
+    const input = chatInput;
+    const reply = replyTarget;
+    let text = input.value.trim();
+    if (reply) {
+      // Hat jemand den Namen des Antwort-Empfängers selbst vorangestellt, weglassen -
+      // Twitch setzt ihn ohnehin, sonst stünde er doppelt im Chat.
+      const esc = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      text = text.replace(new RegExp("^@(?:" + esc(reply.login) + "|" + esc(reply.displayName) + ")(?!\\w)\\s*", "i"), "").trim();
+    }
+    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+    // Antwort: Twitch erwartet die Eltern-Nachricht als IRC-Tag vor dem PRIVMSG.
+    // Braucht nur chat:edit, das ist schon im Login enthalten.
+    const tagPrefix = reply ? `@reply-parent-msg-id=${String(reply.msgId).replace(/[^\w-]/g, "")} ` : "";
+    ws.send(`${tagPrefix}PRIVMSG #${cfg.channelName} :${text}`);
+
+    // Eigene Nachricht sofort lokal anzeigen (Twitch spiegelt eigene PRIVMSGs nicht immer zurück)
+    const row = document.createElement("div");
+    row.className = "msg";
+    const time = document.createElement("span");
+    time.className = "time";
+    time.textContent = formatTime();
+    const who = document.createElement("span");
+    who.className = "who";
+    who.style.color = "var(--accent2)";
+    who.textContent = (selfDisplayName || cfg.channelName || "Du") + ":";
+    const body = document.createElement("span");
+    body.className = "body";
+    if (reply) {
+      body.appendChild(buildReplyCtx({ msgId: reply.msgId, name: reply.displayName, text: reply.text }));
+    }
+    const textEl = document.createElement("span");
+    textEl.className = "msgText";
+    // So sehen es die anderen im Chat: Twitch stellt der Antwort den @Namen voran
+    textEl.innerHTML = renderMessageBody(reply ? "@" + reply.displayName + " " + text : text, null);
+    body.appendChild(textEl);
+    row.append(time, who, body);
+    chatWrap.appendChild(row);
+    chatWrap.scrollTop = chatWrap.scrollHeight;
+
+    input.value = "";
+    resetReply();
+    closeMentionPopup();
+  }
+
+  $("chatSendBtn").onclick = sendChatMessage;
+
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.isComposing) return; // IME-Eingabe nicht stören
+    const popupOpen = mentionPopup.classList.contains("open") && mentionMatches.length > 0;
+
+    if (popupOpen) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        mentionIndex = (mentionIndex + step + mentionMatches.length) % mentionMatches.length;
+        renderMentionPopup();
+        return;
+      }
+      if (e.key === "Escape") { e.preventDefault(); closeMentionPopup(); return; }
+      if (e.key === "Tab") { e.preventDefault(); applyMention(mentionMatches[mentionIndex]); return; }
+      if (e.key === "Enter") {
+        // Ist der Name schon komplett getippt, soll Enter direkt senden statt nochmal zu vervollständigen
+        const q = (currentMentionQuery() || "").toLowerCase();
+        const cur = mentionMatches[mentionIndex];
+        const exact = q && cur && (cur.login === q || cur.displayName.toLowerCase() === q);
+        if (!exact) { e.preventDefault(); applyMention(cur); return; }
+      }
+    }
+
+    if (e.key === "Escape" && replyTarget) { cancelReply(); return; }
+    if (e.key === "Enter") { closeMentionPopup(); sendChatMessage(); }
+  });
+  chatInput.addEventListener("input", updateMentionPopup);
+  chatInput.addEventListener("click", updateMentionPopup);
+  chatInput.addEventListener("keyup", (e) => {
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) updateMentionPopup();
+  });
+  chatInput.addEventListener("blur", closeMentionPopup);
+
+  // ---- Follower-Status (separat abgefragt, da nicht Teil der Chat-Tags) ----
+  const followerCache = new Map();    // userId -> true/false
+  const followerPending = new Map();  // userId -> [callback, ...]
+
+  function markAsFollower(userId) {
+    if (userId) followerCache.set(userId, true);
+  }
+
+  // Die Follower-Liste darf nur der Kanalinhaber oder ein Mod abfragen.
+  function canReadFollowers() {
+    return isBroadcaster || isRealModerator === true;
+  }
+
+  async function checkFollower(userId, onResult) {
+    if (!userId) return;
+    if (followerCache.has(userId)) { onResult(followerCache.get(userId)); return; }
+    if (!canReadFollowers()) { onResult(false); return; } // ohne Netzwerk, ohne Cache-Eintrag
+
+    // Läuft für den User schon eine Abfrage, Callback anhängen statt verwerfen -
+    // sonst fehlt das Badge bei allen weiteren Nachrichten dauerhaft.
+    if (followerPending.has(userId)) { followerPending.get(userId).push(onResult); return; }
+    followerPending.set(userId, [onResult]);
+
+    let isFollower = false;
+    try {
+      const res = await helix(`/channels/followers?broadcaster_id=${broadcasterId}&user_id=${userId}`);
+      isFollower = !!(res.data && res.data.length > 0);
+    } catch (e) {
+      // fehlender Scope oder Fehler -> einfach kein Follower-Badge anzeigen
+      isFollower = false;
+    }
+    followerCache.set(userId, isFollower);
+    const waiting = followerPending.get(userId) || [];
+    followerPending.delete(userId);
+    waiting.forEach(cb => { try { cb(isFollower); } catch (e) { /* egal */ } });
+  }
+
+  // Follower einmalig vorladen, damit im laufenden Chat nicht pro unbekanntem
+  // Chatter ein eigener Helix-Call rausgeht (bei einem Raid sonst hunderte
+  // Requests in Sekunden -> Rate-Limit).
+  async function preloadFollowers(maxPages = 10) {
+    let cursor = null;
+    for (let page = 0; page < maxPages; page++) {
+      let res;
+      try {
+        res = await helix(`/channels/followers?broadcaster_id=${broadcasterId}&first=100` +
+          (cursor ? `&after=${encodeURIComponent(cursor)}` : ""));
+      } catch (e) {
+        systemMsg("Follower-Liste nicht vorgeladen (Scope moderator:read:followers fehlt?) - Badges werden einzeln nachgeladen.");
+        return;
+      }
+      (res.data || []).forEach(f => followerCache.set(f.user_id, true));
+      cursor = res.pagination && res.pagination.cursor;
+      if (!cursor) break;
+    }
+  }
+
+  // ---- IRC / Chat via WebSocket ----
+  function connectChat() {
+    ws = new WebSocket("wss://irc-ws.chat.twitch.tv:443");
+
+    ws.onopen = () => {
+      ws.send("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership");
+      ws.send("PASS oauth:" + cfg.oauthToken);
+      ws.send("NICK " + (selfLogin || cfg.channelName));
+      ws.send("JOIN #" + cfg.channelName);
+    };
+
+    ws.onmessage = (event) => {
+      event.data.split("\r\n").forEach(line => {
+        if (!line) return;
+        if (line.startsWith("PING")) { ws.send("PONG :tmi.twitch.tv"); return; }
+
+        if (line.includes(" 001 ")) {
+          statusDot.classList.add("connected");
+          systemMsg("Verbunden mit #" + cfg.channelName);
+          return;
+        }
+
+        // Login/Auth fehlgeschlagen -> Token evtl. abgelaufen, Refresh versuchen
+        if (line.includes("Login authentication failed") || line.includes(":tmi.twitch.tv NOTICE * :Improperly formatted auth")) {
+          systemMsg("Chat-Login fehlgeschlagen, versuche Token zu erneuern...");
+          refreshAccessToken().then(ok => {
+            if (!ok) return;
+            clearTimeout(reconnectTimer);
+            closeSocket(ws); // Handler weg, sonst kommt gleich noch ein Auto-Reconnect obendrauf
+            connectChat();
+          });
+          return;
+        }
+
+        // Wer den Kanal betritt, landet in der @-Vorschlagsliste (auch ohne je geschrieben zu haben)
+        const joinM = line.match(/^:(\w+)!\w+@\w+\.tmi\.twitch\.tv JOIN #\w+$/);
+        if (joinM) { rememberChatter(joinM[1], null, null, false); return; }
+
+        if (line.includes("PRIVMSG")) {
+          handlePrivmsg(line);
+        }
+
+        if (line.includes("USERNOTICE")) {
+          handleUsernotice(line);
+        }
+
+        if (line.includes("CLEARMSG")) {
+          handleClearMsg(line);
+        }
+
+        if (line.includes("CLEARCHAT")) {
+          handleClearChat(line);
+        }
+      });
+    };
+
+    ws.onclose = () => {
+      statusDot.classList.remove("connected");
+      systemMsg("Verbindung getrennt – erneuter Versuch in 3s...");
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connectChat, 3000);
+    };
+
+    ws.onerror = () => ws.close();
+  }
+
+  function unescapeIrcTagValue(v) {
+    return (v || "")
+      .replace(/\\s/g, " ")
+      .replace(/\\:/g, ";")
+      .replace(/\\r/g, "\r")
+      .replace(/\\n/g, "\n")
+      .replace(/\\\\/g, "\\");
+  }
+
+  function parseTags(raw) {
+    const tags = {};
+    raw.slice(1).split(";").forEach(pair => {
+      if (!pair) return;
+      const idx = pair.indexOf("=");
+      // Tag ohne "=": früher hat slice(0, -1) das letzte Zeichen abgeschnitten
+      if (idx === -1) { tags[pair] = ""; return; }
+      tags[pair.slice(0, idx)] = unescapeIrcTagValue(pair.slice(idx + 1));
+    });
+    return tags;
+  }
+
+  function eventMsg(html, cls, icon) {
+    const div = document.createElement("div");
+    div.className = "event " + cls;
+    div.innerHTML = `<span class="evtext"><span class="icon">${icon}</span>${html}</span>`;
+    appendSticky(eventsWrap, eventsJumpBtn, div);
+
+    while (eventsWrap.children.length > 500) eventsWrap.removeChild(eventsWrap.firstChild);
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement("div");
+    d.textContent = str ?? "";
+    return d.innerHTML;
+  }
+
+  // textContent -> innerHTML maskiert < > &, aber NICHT " und '.
+  // Für Werte, die in einem Attribut landen, deshalb zusätzlich Quotes maskieren.
+  function escapeAttr(str) {
+    return escapeHtml(str).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function formatTime(tmiSentTs) {
+    const d = tmiSentTs ? new Date(Number(tmiSentTs)) : new Date();
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+  }
+
+  // ---- Sub/Resub/Gift-Sub/Raid/Announcement/Streak (USERNOTICE) ----
+  function handleUsernotice(line) {
+    let tags = {};
+    let rest = line;
+    if (line.startsWith("@")) {
+      const spaceIdx = line.indexOf(" ");
+      tags = parseTags(line.slice(0, spaceIdx));
+      rest = line.slice(spaceIdx + 1);
+    }
+    const bodyMatch = rest.match(/USERNOTICE #\w+(?: :(.*))?$/);
+    const attachedMsg = bodyMatch ? bodyMatch[1] : null;
+    const msgId = tags["msg-id"];
+    const name = tags["display-name"] || tags["login"] || "Jemand";
+    const sysMsg = tags["system-msg"] || "";
+    if (tags["login"]) rememberChatter(tags["login"], tags["display-name"], tags["color"], false);
+
+    switch (msgId) {
+      case "sub":
+      case "resub":
+        eventMsg(
+          `<b>${escapeHtml(name)}</b> hat abonniert${tags["msg-param-cumulative-months"] ? ` (${tags["msg-param-cumulative-months"]} Monate)` : ""}.` +
+          (attachedMsg ? `<br>„${escapeHtml(attachedMsg)}“` : ""),
+          "sub", "⭐"
+        );
+        break;
+      case "subgift":
+        eventMsg(
+          `<b>${escapeHtml(name)}</b> hat ein Abo an <b>${escapeHtml(tags["msg-param-recipient-display-name"] || "jemanden")}</b> verschenkt.`,
+          "sub", "🎁"
+        );
+        break;
+      case "submysterygift":
+        eventMsg(
+          `<b>${escapeHtml(name)}</b> hat ${tags["msg-param-mass-gift-count"] || ""} Abos in den Chat verschenkt.`,
+          "sub", "🎁"
+        );
+        break;
+      case "giftpaidupgrade":
+      case "anongiftpaidupgrade":
+        eventMsg(`<b>${escapeHtml(name)}</b> setzt ein geschenktes Abo fort.`, "sub", "⭐");
+        break;
+      case "raid":
+        eventMsg(
+          `<b>${escapeHtml(name)}</b> raidet mit ${tags["msg-param-viewerCount"] || "?"} Zuschauern.`,
+          "raid", "🚀"
+        );
+        break;
+      case "viewermilestone":
+        eventMsg(
+          `<b>${escapeHtml(name)}</b> schaut seit ${tags["msg-param-value"] || "?"} Streams in Folge zu.`,
+          "streak", "🔥"
+        );
+        break;
+      case "announcement":
+        eventMsg(
+          attachedMsg ? escapeHtml(attachedMsg) : (sysMsg ? escapeHtml(sysMsg) : "Ankündigung"),
+          "announcement", "📢"
+        );
+        break;
+      default:
+        // unbekannter/unbehandelter Event-Typ -> als generische Systemzeile anzeigen
+        if (sysMsg) eventMsg(escapeHtml(sysMsg), "generic", "ℹ️");
+    }
+  }
+
+  // ---- Gelöschte Einzelnachricht (Mod löscht eine Nachricht oder AutoMod greift) ----
+  function handleClearMsg(line) {
+    let tags = {};
+    if (line.startsWith("@")) {
+      const spaceIdx = line.indexOf(" ");
+      tags = parseTags(line.slice(0, spaceIdx));
+    }
+    const targetMsgId = tags["target-msg-id"];
+    if (!targetMsgId) return;
+    const row = chatWrap.querySelector(`[data-msgid="${cssEscape(targetMsgId)}"]`);
+    if (row) row.classList.add("deleted");
+    // Gepinnte Nachricht wurde geloescht - Hinweis statt sie kommentarlos stehen zu lassen
+    if (pinnedMsgId === targetMsgId) {
+      const note = document.createElement("span");
+      note.style.opacity = "0.7";
+      note.style.fontStyle = "italic";
+      note.textContent = " (gelöscht)";
+      pinnedMsgBox.querySelector(".pinBody")?.appendChild(note);
+    }
+  }
+
+  // ---- Timeout / Bann / komplettes Chat-Clear ----
+  function handleClearChat(line) {
+    let tags = {};
+    let rest = line;
+    if (line.startsWith("@")) {
+      const spaceIdx = line.indexOf(" ");
+      tags = parseTags(line.slice(0, spaceIdx));
+      rest = line.slice(spaceIdx + 1);
+    }
+    const m = rest.match(/CLEARCHAT #\w+(?: :(.*))?$/);
+    const targetLogin = m && m[1] ? m[1].trim() : null;
+
+    if (!targetLogin) {
+      eventMsg("Chat wurde geleert.", "modaction", "🧹");
+      return;
+    }
+
+    const banDuration = tags["ban-duration"];
+    if (banDuration) {
+      eventMsg(`<b>${escapeHtml(targetLogin)}</b> wurde für ${escapeHtml(banDuration)}s getimeoutet.`, "modaction", "🔨");
+    } else {
+      eventMsg(`<b>${escapeHtml(targetLogin)}</b> wurde permanent gebannt.`, "modaction", "🔨");
+    }
+
+    chatWrap.querySelectorAll(`[data-login="${cssEscape(targetLogin)}"]`).forEach(row => {
+      row.classList.add("modaction");
+    });
+  }
+
+  // ---- Klartext-Abschnitte: maskieren und @Erwähnungen hervorheben ----
+  // Die eigene Erwähnung bekommt eine stärkere Farbe. "@" zählt nur am Wort-
+  // anfang, damit E-Mail-Adressen nicht als Erwähnung durchgehen.
+  function renderPlain(str) {
+    return escapeHtml(str).replace(/(^|\s)@(\w{3,25})(?!\w)/g, (m, pre, name) => {
+      const me = selfLogin && name.toLowerCase() === selfLogin;
+      return `${pre}<span class="mention${me ? " me" : ""}">@${name}</span>`;
+    });
+  }
+
+  // ---- Emotes als Bilder statt als Text ----
+  function renderMessageBody(text, emotesTag) {
+    if (!emotesTag) return renderPlain(text);
+
+    const positions = [];
+    emotesTag.split("/").forEach(part => {
+      const [id, ranges] = part.split(":");
+      if (!id || !ranges) return;
+      ranges.split(",").forEach(r => {
+        const [start, end] = r.split("-").map(Number);
+        if (!isNaN(start) && !isNaN(end)) positions.push({ id, start, end });
+      });
+    });
+    if (!positions.length) return renderPlain(text);
+
+    positions.sort((a, b) => a.start - b.start);
+
+    let html = "";
+    let cursor = 0;
+    positions.forEach(p => {
+      if (p.start < cursor) return; // überlappende/kaputte Positionsangabe überspringen
+      html += renderPlain(text.slice(cursor, p.start));
+      const code = text.slice(p.start, p.end + 1);
+      html += `<img class="emote" src="https://static-cdn.jtvnw.net/emoticons/v2/${encodeURIComponent(p.id)}/default/dark/2.0" alt="${escapeAttr(code)}" title="${escapeAttr(code)}">`;
+      cursor = p.end + 1;
+    });
+    html += renderPlain(text.slice(cursor));
+    return html;
+  }
+
+  const BADGE_LABELS = {
+    broadcaster: { label: "Streamer", cls: "broadcaster" },
+    moderator: { label: "Mod", cls: "mod" },
+    subscriber: { label: "Sub", cls: "sub" },
+    founder: { label: "Founder", cls: "founder" },
+    vip: { label: "VIP", cls: "vip" }
+  };
+
+  function buildBadgeEl(labelObj) {
+    const el = document.createElement("span");
+    el.className = "badge " + labelObj.cls;
+    el.textContent = labelObj.label;
+    return el;
+  }
+
+  function handlePrivmsg(line) {
+    let tags = {};
+    let rest = line;
+    if (line.startsWith("@")) {
+      const spaceIdx = line.indexOf(" ");
+      tags = parseTags(line.slice(0, spaceIdx));
+      rest = line.slice(spaceIdx + 1);
+    }
+    const m = rest.match(/^:(\w+)!\S+ PRIVMSG #\w+ :(.*)$/);
+    if (!m) return;
+
+    const login = m[1];
+    const text = m[2];
+    const displayName = tags["display-name"] || login;
+    const userId = tags["user-id"];
+    const msgId = tags["id"];
+    const color = tags["color"] && tags["color"] !== "" ? tags["color"] : "var(--accent2)";
+    rememberChatter(login, displayName, tags["color"], true);
+
+    // Bits-Cheer -> als eigene hervorgehobene Event-Zeile statt normaler Chatzeile
+    if (tags["bits"]) {
+      eventMsg(
+        `<b>${escapeHtml(displayName)}</b> hat ${escapeHtml(tags["bits"])} Bits gecheert: „${escapeHtml(text)}“`,
+        "bits", "💎"
+      );
+      return;
+    }
+
+    const row = document.createElement("div");
+    row.className = "msg";
+
+    const badges = document.createElement("span");
+    badges.className = "badges";
+
+    // Twitch-Chat-Badges auswerten (subscriber/vip/mod/broadcaster/founder)
+    (tags["badges"] || "").split(",").forEach(entry => {
+      const type = entry.split("/")[0];
+      if (BADGE_LABELS[type]) badges.appendChild(buildBadgeEl(BADGE_LABELS[type]));
+    });
+
+    // Follower-Status separat nachladen (nicht Teil der Chat-Tags) und Badge nachtragen
+    checkFollower(userId, (isFollower) => {
+      if (isFollower && !badges.querySelector(".follower")) {
+        badges.appendChild(buildBadgeEl({ label: "Follower", cls: "follower" }));
+      }
+    });
+
+    const who = document.createElement("span");
+    who.className = "who";
+    who.style.color = color;
+    who.textContent = displayName + ":";
+    who.title = "Klicken zum Markieren";
+    who.onclick = () => toggleMarkUser(login);
+
+    const time = document.createElement("span");
+    time.className = "time";
+    time.textContent = formatTime(tags["tmi-sent-ts"]);
+
+    const body = document.createElement("span");
+    body.className = "body";
+
+    // Antwort auf eine andere Nachricht: Twitch liefert Original-ID, Name und Text als Tags mit
+    if (tags["reply-parent-msg-id"]) {
+      body.appendChild(buildReplyCtx({
+        msgId: tags["reply-parent-msg-id"],
+        name: tags["reply-parent-display-name"] || tags["reply-parent-user-login"] || "?",
+        text: tags["reply-parent-msg-body"] || ""
+      }));
+    }
+    const textEl = document.createElement("span");
+    textEl.className = "msgText";
+    textEl.innerHTML = renderMessageBody(text, tags["emotes"]);
+    body.appendChild(textEl);
+
+    const actions = document.createElement("span");
+    actions.className = "actions";
+
+    // Action-Leiste erst beim ersten Hover bauen. Vorher waren das pro Zeile
+    // ~11 DOM-Knoten, die man nie sieht - bei 500 Zeilen also mehrere tausend
+    // Knoten umsonst.
+    let actionsBuilt = false;
+    function buildActions() {
+      if (actionsBuilt) return;
+      actionsBuilt = true;
+
+      const toSelect = document.createElement("select");
+      toSelect.className = "toSelect";
+      [["10", "10s"], ["60", "1m"], ["600", "10m"], ["3600", "1h"], ["86400", "24h"]].forEach(([val, label]) => {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = label;
+        toSelect.appendChild(opt);
+      });
+      toSelect.value = "600";
+
+      const btnTO = document.createElement("button");
+      btnTO.className = "timeout";
+      btnTO.textContent = "Timeout";
+      btnTO.onclick = () => timeoutUser(userId, parseInt(toSelect.value, 10), "Dock timeout")
+        .catch(e => systemMsg("Fehler: " + e.message));
+
+      const btnDel = document.createElement("button");
+      btnDel.className = "del";
+      btnDel.textContent = "Löschen";
+      btnDel.onclick = () => deleteMessage(msgId).catch(e => systemMsg("Fehler: " + e.message));
+
+      const btnMark = document.createElement("button");
+      btnMark.className = "mark";
+      btnMark.textContent = "Markieren";
+      btnMark.onclick = () => toggleMarkUser(login);
+
+      const btnBlock = document.createElement("button");
+      btnBlock.className = "block";
+      btnBlock.textContent = "Blockieren";
+      btnBlock.onclick = () => {
+        if (confirm(`${displayName} auf deinem persönlichen Account blockieren?`)) {
+          blockUser(userId).catch(e => systemMsg("Fehler: " + e.message));
+        }
+      };
+
+      const btnBan = document.createElement("button");
+      btnBan.className = "ban";
+      btnBan.textContent = "Bann";
+      btnBan.onclick = () => {
+        if (confirm(`${displayName} wirklich bannen?`)) {
+          banUser(userId, "Dock ban").catch(e => systemMsg("Fehler: " + e.message));
+        }
+      };
+
+      const btnPin = document.createElement("button");
+      btnPin.className = "pin";
+      btnPin.textContent = "📌 Pin";
+      btnPin.onclick = () => pinMessage(msgId, displayName, color, textEl.innerHTML);
+
+      // Antworten und Erwähnen darf jeder - diese Buttons bleiben auch im Zuschauer-Modus sichtbar
+      if (msgId) {
+        const btnReply = document.createElement("button");
+        btnReply.className = "reply";
+        btnReply.textContent = "↩";
+        btnReply.title = "Auf diese Nachricht antworten";
+        btnReply.onclick = () => startReply({ msgId, login, displayName, text });
+        actions.appendChild(btnReply);
+      }
+      const btnAt = document.createElement("button");
+      btnAt.className = "at";
+      btnAt.textContent = "@";
+      btnAt.title = "Im Chat erwähnen";
+      btnAt.onclick = () => insertMention(login, displayName);
+      actions.appendChild(btnAt);
+
+      actions.append(toSelect, btnTO, btnDel, btnMark, btnBlock, btnBan, btnPin);
+    }
+    row.addEventListener("mouseenter", buildActions);
+    row.addEventListener("focusin", buildActions);
+
+    row.dataset.login = login;
+    row.dataset.msgid = msgId;
+    if (markedUsers.has(login)) row.classList.add("marked");
+
+    // Zeile hervorheben, wenn ich erwähnt wurde oder jemand auf meine Nachricht antwortet
+    if (selfLogin && login !== selfLogin) {
+      const mentioned = new RegExp("(^|\\s)@" + selfLogin + "(?!\\w)", "i").test(text);
+      const repliedToMe = (tags["reply-parent-user-login"] || "").toLowerCase() === selfLogin;
+      if (mentioned || repliedToMe) row.classList.add("mentionsMe");
+    }
+    row.append(time, badges, who, body, actions);
+    appendSticky(chatWrap, chatJumpBtn, row);
+
+    while (chatWrap.children.length > 500) chatWrap.removeChild(chatWrap.firstChild);
+  }
+
+  async function init() {
+    // Immer erst alles Alte abräumen - sonst laufen nach einem zweiten
+    // "Speichern & Verbinden" zwei Chatverbindungen parallel.
+    teardownConnections();
+
+    if (!cfg.clientId || !cfg.channelName || !cfg.oauthToken) {
+      systemMsg("Bitte zuerst Einstellungen ausfüllen (oben rechts).");
+      return;
+    }
+    try {
+      await loadIdsAndInfo();
+      // Mods laden die Liste erst, wenn ihre Mod-Rechte bestätigt sind (revealModTools)
+      if (isBroadcaster) preloadFollowers(); // bewusst ohne await, soll den Start nicht blockieren
+      connectChat();
+      connectEventSub();
+      scheduleProactiveRefresh();
+    } catch (e) {
+      systemMsg("Fehler beim Start: " + e.message);
+    }
+  }
+
+  // ---- Kanalpunkte-Einlösungen via EventSub (WebSocket) ----
+  function connectEventSub(url) {
+    eventSubWs = new WebSocket(url || "wss://eventsub.wss.twitch.tv/ws");
+
+    eventSubWs.onmessage = async (event) => {
+      let payload;
+      try { payload = JSON.parse(event.data); } catch { return; }
+
+      const msgType = payload.metadata && payload.metadata.message_type;
+
+      if (msgType === "session_welcome") {
+        const sessionId = payload.payload.session.id;
+        // Kanalpunkte, Hype Train und Ziele gehen nur mit Broadcaster-Token.
+        // Für Mods gar nicht erst anfragen, sonst gibt es nur Fehlermeldungen.
+        if (isBroadcaster) {
+          try {
+            await helix("/eventsub/subscriptions", "POST", {
+              type: "channel.channel_points_custom_reward_redemption.add",
+              version: "1",
+              condition: { broadcaster_user_id: broadcasterId },
+              transport: { method: "websocket", session_id: sessionId }
+            });
+          } catch (e) {
+            systemMsg("Kanalpunkte-Events konnten nicht abonniert werden: " + e.message);
+          }
+        }
+        // Zaehlt fehlgeschlagene Mod-Subscriptions in dieser Session mit dem
+        // spezifischen "kein echter Mod"-Grund - nicht mit fehlendem Scope
+        // verwechseln, das waere ein anderer Fehlertext.
+        let authFailCount = 0;
+        const NOT_A_MOD = /missing proper authorization/i;
+
+        try {
+          await helix("/eventsub/subscriptions", "POST", {
+            type: "channel.follow",
+            version: "2",
+            condition: { broadcaster_user_id: broadcasterId, moderator_user_id: moderatorId },
+            transport: { method: "websocket", session_id: sessionId }
+          });
+          revealModTools(); // hat geklappt -> ist ein echter Mod, Mod-UI einblenden
+        } catch (e) {
+          if (NOT_A_MOD.test(e.message)) {
+            authFailCount++;
+          } else if (isRealModerator !== false) {
+            systemMsg("Follow-Events konnten nicht abonniert werden (Scope moderator:read:followers?): " + e.message);
+          }
+        }
+        try {
+          await helix("/eventsub/subscriptions", "POST", {
+            type: "automod.message.hold",
+            version: "2",
+            condition: { broadcaster_user_id: broadcasterId, moderator_user_id: moderatorId },
+            transport: { method: "websocket", session_id: sessionId }
+          });
+          revealModTools(); // hat geklappt -> ist ein echter Mod, Mod-UI einblenden
+        } catch (e) {
+          if (NOT_A_MOD.test(e.message)) {
+            authFailCount++;
+          } else if (isRealModerator !== false) {
+            systemMsg("AutoMod-Warteschlange konnte nicht abonniert werden (Scope moderator:manage:automod?): " + e.message);
+          }
+        }
+        // Beide moderator-gebundenen Subscriptions aus demselben Grund
+        // gescheitert (und keine Broadcaster-Subscription lief) -> das ist
+        // kein Scope-Problem, sondern schlicht kein echter Mod im Kanal.
+        if (!isBroadcaster && authFailCount >= 2) {
+          markAsViewerOnly();
+        }
+        if (isBroadcaster) {
+          for (const t of ["channel.hype_train.begin", "channel.hype_train.progress", "channel.hype_train.end"]) {
+            try {
+              await helix("/eventsub/subscriptions", "POST", {
+                type: t, version: "2",
+                condition: { broadcaster_user_id: broadcasterId },
+                transport: { method: "websocket", session_id: sessionId }
+              });
+            } catch (e) {
+              systemMsg("Hype-Train-Events (" + t + ") konnten nicht abonniert werden (Scope channel:read:hype_train?): " + e.message);
+              break;
+            }
+          }
+          for (const t of ["channel.goal.begin", "channel.goal.progress", "channel.goal.end"]) {
+            try {
+              await helix("/eventsub/subscriptions", "POST", {
+                type: t, version: "1",
+                condition: { broadcaster_user_id: broadcasterId },
+                transport: { method: "websocket", session_id: sessionId }
+              });
+            } catch (e) {
+              systemMsg("Goal-Events (" + t + ") konnten nicht abonniert werden (Scope channel:read:goals?): " + e.message);
+              break;
+            }
+          }
+        }
+        return;
+      }
+
+      if (msgType === "session_reconnect") {
+        const newUrl = payload.payload.session.reconnect_url;
+        clearTimeout(eventSubReconnectTimer);
+        closeSocket(eventSubWs); // sonst legt onclose 5s später noch eine Session an
+        connectEventSub(newUrl);
+        return;
+      }
+
+      if (msgType === "notification") {
+        const subType = payload.payload.subscription.type;
+        const ev = payload.payload.event;
+        if (subType === "channel.channel_points_custom_reward_redemption.add") {
+          renderRedemptionEvent(ev);
+        }
+        if (subType === "channel.follow") {
+          markAsFollower(ev.user_id); // Cache aktuell halten, spart einen Helix-Call
+          rememberChatter(ev.user_login, ev.user_name, null, false);
+          eventMsg(`<b>${escapeHtml(ev.user_name)}</b> folgt jetzt.`, "follow", "💚");
+        }
+        if (subType === "automod.message.hold") {
+          renderAutomodHold(ev);
+        }
+        if (subType === "channel.hype_train.begin" || subType === "channel.hype_train.progress") {
+          updateHypeTrain(ev);
+        }
+        if (subType === "channel.hype_train.end") {
+          endHypeTrain(ev);
+        }
+        if (subType === "channel.goal.begin" || subType === "channel.goal.progress") {
+          updateGoal(ev);
+        }
+        if (subType === "channel.goal.end") {
+          removeGoal(ev);
+        }
+      }
+    };
+
+    eventSubWs.onclose = () => {
+      clearTimeout(eventSubReconnectTimer);
+      // Ohne echte Mod-Rechte kann in dieser Session ohnehin nichts
+      // abonniert werden - Twitch trennt die Verbindung nach ein paar
+      // Sekunden wegen "keine aktive Subscription", und ein Reconnect würde
+      // nur dieselben 403-Fehler in Dauerschleife erzeugen.
+      if (isRealModerator === false) return;
+      eventSubReconnectTimer = setTimeout(() => connectEventSub(), 5000);
+    };
+
+    eventSubWs.onerror = () => eventSubWs.close();
+  }
+
+  // ---- Kanalpunkte zurückerstatten (z. B. wenn Belohnung aktuell nicht verfügbar ist) ----
+  async function refundRedemption(rewardId, redemptionId) {
+    await helix(
+      `/channel_points/custom_rewards/redemptions?broadcaster_id=${broadcasterId}&reward_id=${rewardId}&id=${redemptionId}`,
+      "PATCH",
+      { status: "CANCELED" }
+    );
+  }
+
+  function renderRedemptionEvent(ev) {
+    const div = document.createElement("div");
+    div.className = "event redemption";
+    rememberChatter(ev.user_login, ev.user_name, null, false);
+
+    const info = document.createElement("span");
+    info.className = "evtext";
+    info.innerHTML =
+      `<span class="icon">🏆</span><b>${escapeHtml(ev.user_name)}</b> hat <b>${escapeHtml(ev.reward.title)}</b> eingelöst (${ev.reward.cost} Punkte)` +
+      (ev.user_input ? `<br>„${escapeHtml(ev.user_input)}“` : "");
+
+    const btn = document.createElement("button");
+    btn.className = "refundBtn";
+    btn.textContent = "Punkte zurückerstatten";
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = "…";
+      try {
+        await refundRedemption(ev.reward.id, ev.id);
+        btn.textContent = "Erstattet ✓";
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = "Punkte zurückerstatten";
+        systemMsg("Erstattung fehlgeschlagen: " + e.message);
+      }
+    };
+
+    div.append(info, btn);
+    appendSticky(eventsWrap, eventsJumpBtn, div);
+
+    while (eventsWrap.children.length > 500) eventsWrap.removeChild(eventsWrap.firstChild);
+  }
+
+  // ---- AutoMod-Warteschlange (gehaltene Nachrichten freigeben/ablehnen) ----
+  async function resolveAutomodMessage(msgId, action) {
+    await helix("/moderation/automod/message", "POST", {
+      user_id: moderatorId, msg_id: msgId, action
+    });
+  }
+
+  function renderAutomodHold(ev) {
+    const div = document.createElement("div");
+    div.className = "event automod";
+
+    const text = (ev.message && ev.message.text) || "";
+
+    // In v2 liegen Kategorie und Stufe unter ev.automod (nicht mehr flach wie in v1).
+    // Bei einem gesperrten Begriff ist ev.automod null und ev.blocked_term gefüllt.
+    let grund = "";
+    if (ev.automod && ev.automod.category) {
+      grund = ` (AutoMod: ${escapeHtml(ev.automod.category)}` +
+        (ev.automod.level != null ? `, Stufe ${escapeHtml(String(ev.automod.level))}` : "") + `)`;
+    } else if (ev.blocked_term && ev.blocked_term.terms_found && ev.blocked_term.terms_found.length) {
+      grund = ` (Blockierter Begriff${ev.blocked_term.terms_found.length > 1 ? ", " + ev.blocked_term.terms_found.length + "x" : ""})`;
+    } else if (ev.reason) {
+      grund = ` (${escapeHtml(String(ev.reason))})`;
+    }
+
+    const info = document.createElement("span");
+    info.className = "evtext";
+    info.innerHTML =
+      `<span class="icon">🛡️</span><b>${escapeHtml(ev.user_name || ev.user_login || "Jemand")}</b>` +
+      grund +
+      `<br>„${escapeHtml(text)}“`;
+
+    const btns = document.createElement("span");
+    btns.className = "automodBtns";
+
+    const allowBtn = document.createElement("button");
+    allowBtn.className = "allow";
+    allowBtn.textContent = "Freigeben";
+
+    const denyBtn = document.createElement("button");
+    denyBtn.className = "deny";
+    denyBtn.textContent = "Ablehnen";
+
+    const setDone = (label) => {
+      allowBtn.disabled = true;
+      denyBtn.disabled = true;
+      const status = document.createElement("span");
+      status.textContent = label;
+      btns.innerHTML = "";
+      btns.appendChild(status);
+    };
+
+    allowBtn.onclick = async () => {
+      allowBtn.disabled = true; denyBtn.disabled = true;
+      try {
+        await resolveAutomodMessage(ev.message_id, "ALLOW");
+        setDone("Freigegeben ✓");
+      } catch (e) {
+        allowBtn.disabled = false; denyBtn.disabled = false;
+        systemMsg("Freigeben fehlgeschlagen: " + e.message);
+      }
+    };
+    denyBtn.onclick = async () => {
+      allowBtn.disabled = true; denyBtn.disabled = true;
+      try {
+        await resolveAutomodMessage(ev.message_id, "DENY");
+        setDone("Abgelehnt ✓");
+      } catch (e) {
+        allowBtn.disabled = false; denyBtn.disabled = false;
+        systemMsg("Ablehnen fehlgeschlagen: " + e.message);
+      }
+    };
+
+    btns.append(allowBtn, denyBtn);
+    div.append(info, btns);
+    appendSticky(eventsWrap, eventsJumpBtn, div);
+
+    while (eventsWrap.children.length > 500) eventsWrap.removeChild(eventsWrap.firstChild);
+  }
+
+  // ---- Hype-Train-Anzeige ----
+  let hypeTrainEndTimer = null;
+  function updateHypeTrain(ev) {
+    clearTimeout(hypeTrainEndTimer);
+    const bar = $("hypeTrainBar");
+    bar.style.display = "flex";
+    const pct = ev.goal ? Math.min(100, Math.round((ev.progress / ev.goal) * 100)) : 0;
+    bar.querySelector(".liveStatLabel").textContent =
+      `🚂 Hype Train Level ${ev.level} — ${ev.progress}/${ev.goal}`;
+    bar.querySelector(".liveStatFill").style.width = pct + "%";
+  }
+  function endHypeTrain(ev) {
+    const bar = $("hypeTrainBar");
+    bar.style.display = "flex";
+    bar.querySelector(".liveStatLabel").textContent = `🚂 Hype Train beendet (Level ${ev.level})`;
+    bar.querySelector(".liveStatFill").style.width = "100%";
+    hypeTrainEndTimer = setTimeout(() => { bar.style.display = "none"; }, 8000);
+  }
+
+  // ---- Sub-/Follower-Goal-Fortschritt ----
+  const activeGoals = new Map(); // goal id -> { row, label, fill }
+  const GOAL_LABELS = {
+    follower: "Follower-Ziel",
+    subscription: "Sub-Ziel",
+    subscription_count: "Sub-Ziel",
+    new_subscription: "Neue Subs",
+    new_subscription_count: "Neue Subs"
+  };
+  function updateGoal(ev) {
+    const goalsBar = $("goalsBar");
+    let entry = activeGoals.get(ev.id);
+    if (!entry) {
+      const row = document.createElement("div");
+      row.className = "liveStatBar";
+      row.innerHTML = `<div class="liveStatLabel"></div><div class="liveStatTrack"><div class="liveStatFill"></div></div>`;
+      goalsBar.appendChild(row);
+      entry = { row, label: row.querySelector(".liveStatLabel"), fill: row.querySelector(".liveStatFill") };
+      activeGoals.set(ev.id, entry);
+    }
+    const typeLabel = GOAL_LABELS[ev.type] || ev.type;
+    const pct = ev.target_amount ? Math.min(100, Math.round((ev.current_amount / ev.target_amount) * 100)) : 0;
+    entry.label.textContent = `🎯 ${typeLabel}: ${ev.current_amount}/${ev.target_amount}` +
+      (ev.description ? ` — ${ev.description}` : "");
+    entry.fill.style.width = pct + "%";
+    goalsBar.style.display = "flex";
+  }
+  function removeGoal(ev) {
+    const entry = activeGoals.get(ev.id);
+    if (entry) {
+      entry.row.remove();
+      activeGoals.delete(ev.id);
+    }
+    if (activeGoals.size === 0) $("goalsBar").style.display = "none";
+  }
+
+  // ---- Start ----
+  $("streamInfo").style.display = "none"; // erst zeigen, wenn klar ist, wer angemeldet ist
+  $("redirectHint").textContent = redirectUri();
+  $("inviteHint").textContent = redirectUri()
+    + "?client_id=" + (cfg.clientId || "DEINE_CLIENT_ID")
+    + "&channel=" + (cfg.channelName || "deinkanal");
+
+  consumeImplicitToken();
+  $("oauthToken").value = cfg.oauthToken || "";
+  $("refreshToken").value = cfg.refreshToken || "";
+
+  if (!cfg.oauthToken) {
+    settingsPanel.classList.add("open");
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
